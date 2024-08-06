@@ -1,266 +1,158 @@
 import streamlit as st
 from openai import OpenAI
 import time
-import re
+import random
 
-# Initialize OpenAI client
+# 设置OpenAI客户端
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# Define character and theme options
-CHARACTER_OPTIONS = ["貓咪", "狗狗", "花花", "小鳥", "小石頭"]
-THEME_OPTIONS = ["親情", "友情", "冒險", "度假", "運動比賽"]
-
-def generate_plot_points(character, theme):
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": "你是一個創意的故事策劃者。請直接列出3到5個完整的轉折點，每個轉折點應該是一個完整的句子。不要添加編號。"},
-            {"role": "user", "content": f"為一個關於{character}的{theme}故事生成3到5個可能的轉折點。確保每個轉折點都是完整的想法。"}
-        ],
-        max_tokens=300,
-        n=1,
-        temperature=0.7,
-    )
-    content = response.choices[0].message.content.strip()
-    plot_points = [point.strip() for point in content.split('\n') if point.strip()]
-    return plot_points
-
-def generate_story(character, theme, plot_point, pages):
+def generate_story(character, theme, twist, pages):
+    # 使用OpenAI的GPT模型生成故事
     prompt = f"""
-    請你角色扮演成一個暢銷的童書繪本作家，你擅長以孩童的純真眼光看這世界，製作出許多溫暖人心的作品。
-    請以下列主題: {theme}發想故事，
-    在{pages}的篇幅內，
-    說明一個{character}的故事，
-    並注意在倒數第三頁加入{plot_point}的元素，
+    请你角色扮演成一个暢銷的童書繪本作家，你擅長以孩童的純真眼光看這世界，製作出許多溫暖人心的作品。
+    請以下列主題: {theme} 發想故事，
+    在 {pages} 的篇幅內，
+    說明一個 {character} 的故事，
+    並注意在倒數第三頁加入 {twist} 的元素，
     最後的故事需要是溫馨、快樂的結局。
     """
+    
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": "你是一個專業的兒童繪本作家。"},
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=1000,
-        n=1,
-        temperature=0.7,
+        model="gpt-4o-mini",  # 使用您确认可用的模型
+        messages=[{"role": "user", "content": prompt}]
     )
-    return response.choices[0].message.content.strip()
+    
+    return response.choices[0].message.content
 
-def generate_pages(story, pages, character, theme, plot_point):
+def generate_page_prompts(story, pages, character, theme, twist):
     prompt = f"""
-    將以下故事大綱細分至預計{pages}個跨頁的篇幅，每頁需要包括(text, image_prompt)，
-    {pages-3}(倒數第三頁)才可以出現{plot_point}的元素，
-    在這之前應該要讓{character}的{theme}世界發展故事更多元化:
-
+    將以下故事大綱細分至預計 {pages} 個跨頁的篇幅，每頁需要包括(text，image_prompt)，
+    {pages-3}(倒數第三頁)才可以出現 {twist}，
+    在這之前應該要讓 {character} 的 {theme} 世界發展故事更多元化：
+    
     {story}
-
-    請確保每頁的格式如下：
-    Page X:
-    text: [頁面文字]
-    image_prompt: [圖像提示]
-
-    不要包含任何其他格式或說明。
     """
+    
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": "你是一個專業的繪本編輯。"},
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=1000,
-        n=1,
-        temperature=0.7,
+        model="gpt-4o-mini",  # 使用您确认可用的模型
+        messages=[{"role": "user", "content": prompt}]
     )
-    return response.choices[0].message.content.strip()
+    
+    return response.choices[0].message.content
 
 def generate_style_base(story):
     prompt = f"""
-    基於以下故事，請思考大方向上你想要呈現的視覺效果，這是你用來統一整體繪本風格的描述，請盡量精簡，使用英文撰寫:
-
+    基于以下故事，请思考大方向上你想要呈现的视觉效果，这是你用来统一整体绘本风格的描述，请尽量精简，使用英文撰写：
+    
     {story}
     """
+    
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": "你是一個專業的視覺設計師。"},
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=100,
-        n=1,
-        temperature=0.7,
+        model="gpt-4o-mini",  # 使用您确认可用的模型
+        messages=[{"role": "user", "content": prompt}]
     )
-    return response.choices[0].message.content.strip()
+    
+    return response.choices[0].message.content
 
-def image_generation(image_prompt, style_base):
+def generate_image(image_prompt, style_base):
     final_prompt = f"""
-    Based on the image prompt: "{image_prompt}" and the style base: "{style_base}",
-    please create an image with the following characteristics:
-    - Color scheme and background details that match the story's atmosphere
-    - Specific style and scene details as described
-    - The main character should be prominently featured with the current color, shape, and features
-    - Apply at least 3 effect words (lighting effects, color tones, rendering effects, visual style)
-    - Use 1 or more composition techniques for visual interest
-    - Do not include any text in the image
-    - Set a random seed value of 42
+    根据以下内容补充色调、背景描述、具体风格、画面细节，以及角色目前的颜色、型体、特征。
+    必须具体的描述，同时至少3个效果词(光照效果、色彩色调、渲染效果、视觉风格)和1个以上的构图技巧，以构成完整的prompt。
+    请设定随机种子值为42，且不要有文字出现在图中，使用英文撰写：
+    
+    Image prompt: {image_prompt}
+    Style base: {style_base}
     """
     
-    try:
-        response = client.images.generate(
-            model="dall-e-3",
-            prompt=final_prompt,
-            n=1,
-            size="1792x1024",
-            quality="standard",
-            response_format="url"
-        )
-        image_url = response.data[0].url
-        return image_url
-    except Exception as e:
-        st.error(f"生成圖片時發生錯誤: {str(e)}")
-        return None
-
-def generate_preview_image():
-    with st.spinner("正在生成第一頁預覽圖..."):
-        pages = st.session_state.pages_content.split("Page ")
-        if len(pages) > 1:
-            first_page = pages[1]
-            text_parts = first_page.split("text: ")
-            if len(text_parts) > 1:
-                image_prompt_parts = text_parts[1].split("image_prompt: ")
-                if len(image_prompt_parts) > 1:
-                    image_prompt = image_prompt_parts[1].strip()
-                    image_url = image_generation(image_prompt, st.session_state.style_base)
-                    if image_url:
-                        st.image(image_url, caption="第一頁預覽")
-                        if st.button("重新生成預覽圖"):
-                            generate_preview_image()
-                    else:
-                        st.error("生成預覽圖失敗。請稍後再試。")
-                else:
-                    st.error("無法找到圖像提示。請檢查生成的內容格式。")
-            else:
-                st.error("無法找到頁面文字。請檢查生成的內容格式。")
-        else:
-            st.error("無法找到頁面內容。請檢查生成的內容格式。")
-
-def generate_full_storybook():
-    pages = st.session_state.pages_content.split("Page ")[1:]  # 跳過第一個空元素
-    total_pages = len(pages)
-
-    # 創建一個進度條
-    progress_bar = st.progress(0)
-
-    for i, page in enumerate(pages, 1):
-        parts = page.split("text: ")
-        if len(parts) > 1:
-            text_and_prompt = parts[1].split("image_prompt: ")
-            if len(text_and_prompt) > 1:
-                text = text_and_prompt[0].strip()
-                image_prompt = text_and_prompt[1].strip()
-                st.subheader(f"第 {i} 頁")
-                st.write(text)
-                with st.spinner(f"正在生成第 {i} 頁插圖..."):
-                    image_url = image_generation(image_prompt, st.session_state.style_base)
-                    if image_url:
-                        st.image(image_url, caption=f"第 {i} 頁插圖")
-                    else:
-                        st.error(f"第 {i} 頁: 生成圖片失敗。請稍後再試。")
-                time.sleep(5)  # 添加延遲以避免超過 API 速率限制
-            else:
-                st.error(f"第 {i} 頁: 無法找到圖像提示。請檢查生成的內容格式。")
-        else:
-            st.error(f"第 {i} 頁: 無法找到頁面文字。請檢查生成的內容格式。")
-
-        # 更新進度條
-        progress_bar.progress(i / total_pages)
-
-    st.success("完整繪本生成完成！")
+    response = client.images.generate(
+        model="dall-e-3",
+        prompt=final_prompt,
+        n=1,
+        size="1792x1024"
+    )
+    
+    return response.data[0].url
 
 def main():
-    st.title("互動式繪本生成器")
-
-    # 使用 session_state 來保存狀態
-    if 'character' not in st.session_state:
-        st.session_state.character = None
-    if 'theme' not in st.session_state:
-        st.session_state.theme = None
-    if 'pages' not in st.session_state:
-        st.session_state.pages = 8
-    if 'plot_points' not in st.session_state:
-        st.session_state.plot_points = None
-    if 'selected_plot_point' not in st.session_state:
-        st.session_state.selected_plot_point = None
-    if 'story' not in st.session_state:
-        st.session_state.story = None
-    if 'pages_content' not in st.session_state:
-        st.session_state.pages_content = None
-    if 'style_base' not in st.session_state:
-        st.session_state.style_base = None
-
-    # 選擇或輸入繪本主角
-    character = st.selectbox("選擇繪本主角", CHARACTER_OPTIONS + ["自定義"], key='character_select')
-    if character == "自定義":
-        character = st.text_input("輸入自定義主角", key='character_input')
-    st.session_state.character = character
-
-    # 選擇或輸入繪本主題
-    theme = st.selectbox("選擇繪本主題", THEME_OPTIONS + ["自定義"], key='theme_select')
-    if theme == "自定義":
-        theme = st.text_input("輸入自定義主題", key='theme_input')
-    st.session_state.theme = theme
-
-    # 選擇頁數
-    st.session_state.pages = st.slider("選擇繪本頁數", 6, 12, st.session_state.pages)
-
-    if st.button("生成故事轉折點"):
-        with st.spinner("正在生成故事轉折點..."):
-            st.session_state.plot_points = generate_plot_points(st.session_state.character, st.session_state.theme)
+    st.title("交互式儿童绘本生成器")
+    
+    # 选择或输入绘本主角
+    character_options = ["貓咪", "狗狗", "花花", "小鳥", "小石頭"]
+    character = st.selectbox("选择绘本主角", character_options + ["其他"])
+    if character == "其他":
+        character = st.text_input("输入自定义主角")
+    
+    # 选择或输入绘本主题
+    theme_options = ["親情", "友情", "冒險", "度假", "運動比賽"]
+    theme = st.selectbox("选择绘本主题", theme_options + ["其他"])
+    if theme == "其他":
+        theme = st.text_input("输入自定义主题")
+    
+    # 选择页数
+    pages = st.slider("选择绘本页数", 6, 12)
+    
+    if st.button("生成故事框架"):
+        # 生成初步故事
+        story = generate_story(character, theme, "", pages)
+        st.session_state.story = story
+        st.write("初步故事框架已生成。")
         
-    if st.session_state.plot_points:
-        st.write("生成的故事轉折點：")
-        for i, point in enumerate(st.session_state.plot_points, 1):
-            st.write(f"{i}. {point}")
+        # 生成故事转折点选项
+        twist_options = generate_twist_options(story)
+        st.session_state.twist_options = twist_options
         
-        st.session_state.selected_plot_point = st.selectbox(
-            "選擇故事轉折點",
-            options=st.session_state.plot_points + ["自定義"],
-            index=0 if st.session_state.selected_plot_point is None else st.session_state.plot_points.index(st.session_state.selected_plot_point) if st.session_state.selected_plot_point in st.session_state.plot_points else len(st.session_state.plot_points),
-            format_func=lambda x: x if x != "自定義" else "自定義轉折點",
-            key='plot_point_select'
-        )
+        # 让用户选择转折点
+        twist = st.radio("选择故事转折重点", twist_options + ["其他"])
+        if twist == "其他":
+            twist = st.text_input("输入自定义转折重点")
         
-        if st.session_state.selected_plot_point == "自定義":
-            st.session_state.selected_plot_point = st.text_input("輸入自定義故事轉折點", key='custom_plot_point')
+        if st.button("确认转折点并生成完整故事"):
+            # 重新生成带有转折点的完整故事
+            full_story = generate_story(character, theme, twist, pages)
+            st.session_state.full_story = full_story
+            
+            # 生成分页提示词
+            page_prompts = generate_page_prompts(full_story, pages, character, theme, twist)
+            st.session_state.page_prompts = page_prompts
+            
+            # 生成风格基础
+            style_base = generate_style_base(full_story)
+            st.session_state.style_base = style_base
+            
+            st.write("完整故事和图像提示词已生成。")
+            st.write("故事预览：")
+            st.write(full_story)
+            
+            if st.button("生成第一张图像"):
+                # 解析第一页的图像提示词
+                first_page_prompt = page_prompts.split("\n")[0]  # 这里需要根据实际输出格式进行调整
+                image_url = generate_image(first_page_prompt, style_base)
+                st.image(image_url)
+                
+                if st.button("确认并生成完整绘本"):
+                    # 这里需要循环生成所有页面的图像
+                    for i, page_prompt in enumerate(page_prompts.split("\n")):
+                        image_url = generate_image(page_prompt, style_base)
+                        st.write(f"第 {i+1} 页")
+                        st.image(image_url)
+                        st.write(page_prompt)
+                        time.sleep(5)  # 添加延迟以避免API限制
 
-    if st.button("生成繪本"):
-        if st.session_state.selected_plot_point:
-            with st.spinner("正在生成故事..."):
-                st.session_state.story = generate_story(st.session_state.character, st.session_state.theme, st.session_state.selected_plot_point, st.session_state.pages)
-                st.write("故事大綱：")
-                st.write(st.session_state.story)
-
-                st.session_state.pages_content = generate_pages(st.session_state.story, st.session_state.pages, st.session_state.character, st.session_state.theme, st.session_state.selected_plot_point)
-                st.write("分頁內容：")
-                st.write(st.session_state.pages_content)
-
-                st.session_state.style_base = generate_style_base(st.session_state.story)
-                st.write("風格基礎：")
-                st.write(st.session_state.style_base)
-
-            # 生成並顯示第一張圖片
-            generate_preview_image()
-
-            if st.button("重新生成繪本劇情"):
-                with st.spinner("正在重新生成繪本劇情..."):
-                    st.session_state.story = generate_story(st.session_state.character, st.session_state.theme, st.session_state.selected_plot_point, st.session_state.pages)
-                    st.session_state.pages_content = generate_pages(st.session_state.story, st.session_state.pages, st.session_state.character, st.session_state.theme, st.session_state.selected_plot_point)
-                    st.session_state.style_base = generate_style_base(st.session_state.story)
-                    st.experimental_rerun()
-
-            if st.button("生成完整繪本"):
-                generate_full_storybook()
-        else:
-            st.warning("請先選擇或輸入一個故事轉折點。")
+def generate_twist_options(story):
+    # 使用OpenAI的GPT模型生成转折点选项
+    prompt = f"""
+    根据以下故事，生成3到5个可能的故事转折重点选项：
+    
+    {story}
+    """
+    
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",  # 使用您确认可用的模型
+        messages=[{"role": "user", "content": prompt}]
+    )
+    
+    options = response.choices[0].message.content.split("\n")
+    return [option.strip() for option in options if option.strip()]
 
 if __name__ == "__main__":
     main()
