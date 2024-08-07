@@ -45,7 +45,7 @@ async def generate_plot_points(character: str, theme: str) -> List[str]:
     朋友陷入危險需要救援
     """
     response = await client.chat.completions.create(
-        model="gpt-4-mini",
+        model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}]
     )
     plot_points = response.choices[0].message.content.split('\n')
@@ -83,7 +83,7 @@ async def generate_story(character: str, theme: str, plot_point: str, page_count
     最後的故事需要是溫馨、快樂的結局。
     """
     response = await client.chat.completions.create(
-        model="gpt-4-mini",
+        model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}]
     )
     return response.choices[0].message.content
@@ -104,7 +104,7 @@ async def generate_paged_story(story: str, page_count: int, character: str, them
     {story}
     """
     response = await client.chat.completions.create(
-        model="gpt-4-mini",
+        model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}]
     )
     return response.choices[0].message.content
@@ -116,7 +116,7 @@ async def generate_style_base(story: str) -> str:
     {story}
     """
     response = await client.chat.completions.create(
-        model="gpt-4-mini",
+        model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}]
     )
     return response.choices[0].message.content
