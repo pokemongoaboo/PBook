@@ -6,8 +6,10 @@ import random
 import json
 import re
 from typing import List, Dict
+from tenacity import retry, stop_after_attempt, wait_exponential
+from asyncio import Semaphore
 
-# 設置OpenAI客戶端
+# 設置 OpenAI 客戶端
 client = AsyncOpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # 主角選項
@@ -43,7 +45,7 @@ async def generate_plot_points(character: str, theme: str) -> List[str]:
     朋友陷入危險需要救援
     """
     response = await client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4-mini",
         messages=[{"role": "user", "content": prompt}]
     )
     plot_points = response.choices[0].message.content.split('\n')
@@ -81,7 +83,7 @@ async def generate_story(character: str, theme: str, plot_point: str, page_count
     最後的故事需要是溫馨、快樂的結局。
     """
     response = await client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4-mini",
         messages=[{"role": "user", "content": prompt}]
     )
     return response.choices[0].message.content
@@ -102,7 +104,7 @@ async def generate_paged_story(story: str, page_count: int, character: str, them
     {story}
     """
     response = await client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4-mini",
         messages=[{"role": "user", "content": prompt}]
     )
     return response.choices[0].message.content
@@ -114,26 +116,28 @@ async def generate_style_base(story: str) -> str:
     {story}
     """
     response = await client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4-mini",
         messages=[{"role": "user", "content": prompt}]
     )
     return response.choices[0].message.content
 
-async def generate_image(image_prompt: str, style_base: str) -> str:
-    final_prompt = f"""
-    Based on the image prompt: "{image_prompt}" and the style base: "{style_base}",
-    please create a detailed image description including color scheme, background details, specific style, and scene details.
-    Describe the current color, shape, and features of the main character.
-    Include at least 3 effect words (lighting effects, color tones, rendering effects, visual styles) and 1 or more composition techniques.
-    Set a random seed value of 42. Ensure no text appears in the image.
-    """
-    response = await client.images.generate(
-        model="dall-e-3",
-        prompt=final_prompt,
-        size="1024x1024",
-        n=1
-    )
-    return response.data[0].url
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+async def generate_image(image_prompt: str, style_base: str, semaphore: Semaphore) -> str:
+    async with semaphore:
+        final_prompt = f"""
+        Based on the image prompt: "{image_prompt}" and the style base: "{style_base}",
+        please create a detailed image description including color scheme, background details, specific style, and scene details.
+        Describe the current color, shape, and features of the main character.
+        Include at least 3 effect words (lighting effects, color tones, rendering effects, visual styles) and 1 or more composition techniques.
+        Set a random seed value of 42. Ensure no text appears in the image.
+        """
+        response = await client.images.generate(
+            model="dall-e-3",
+            prompt=final_prompt,
+            size="1024x1024",
+            n=1
+        )
+        return response.data[0].url
 
 def preprocess_json(json_string: str) -> str:
     # 移除可能的 Markdown 代碼塊標記
@@ -152,13 +156,29 @@ def preprocess_json(json_string: str) -> str:
     return json_string
 
 async def generate_images_parallel(pages: List[Dict[str, str]], style_base: str) -> List[str]:
+    semaphore = Semaphore(5)  # 限制並發請求數為5
     tasks = []
     for page in pages:
         image_prompt = page.get('image_prompt', '')
         if image_prompt:
-            task = generate_image(image_prompt, style_base)
+            task = generate_image(image_prompt, style_base, semaphore)
             tasks.append(task)
-    return await asyncio.gather(*tasks)
+    
+    images = []
+    for i, task in enumerate(asyncio.as_completed(tasks), 1):
+        try:
+            image_url = await task
+            images.append(image_url)
+            st.write(f"已生成 {i}/{len(tasks)} 張圖片")
+        except Exception as e:
+            st.error(f"生成第 {i} 張圖片時發生錯誤: {str(e)}")
+            images.append(None)
+        
+        if i % 5 == 0 and i < len(tasks):
+            st.write("等待速率限制重置...")
+            await asyncio.sleep(60)  # 每5張圖片後等待60秒
+    
+    return images
 
 async def main_async():
     try:
@@ -187,8 +207,9 @@ async def main_async():
         
         st.success(f"成功解析 JSON。共有 {len(pages)} 頁。")
 
-        with st.spinner("正在並行生成所有圖片..."):
+        with st.spinner("正在生成圖片..."):
             image_urls = await generate_images_parallel(pages, style_base)
+            st.success(f"成功生成 {len([url for url in image_urls if url])} 張圖片")
 
         for i, (page, image_url) in enumerate(zip(pages, image_urls), 1):
             st.write(f"第 {i} 頁")
@@ -196,7 +217,7 @@ async def main_async():
             if image_url:
                 st.image(image_url, caption=f"第 {i} 頁的插圖")
             else:
-                st.warning(f"第 {i} 頁沒有圖像")
+                st.warning(f"第 {i} 頁的圖片生成失敗")
 
     except json.JSONDecodeError as e:
         st.error(f"JSON 解析錯誤：{str(e)}")
